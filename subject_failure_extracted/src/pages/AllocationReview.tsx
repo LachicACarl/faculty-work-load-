@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Search, Check, X, Info, Filter, Download, ChevronRight } from "lucide-react";
 import { C, mono, MatchBadge, StatusBadge, MatchLevel, ApprovalStatus, SectionHeading, Card } from "../app/shared";
+import { updateAllocationStatus, downloadWorkloadSummary } from "../services/api";
 
 interface Allocation {
   id: string; faculty: string; subject: string; code: string;
@@ -32,15 +33,49 @@ export default function AllocationReview() {
   const [statusF, setStatusF] = useState<"All" | ApprovalStatus>("All");
   const [detail, setDetail] = useState<Allocation | null>(null);
   const [allocs, setAllocs] = useState<Allocation[]>(ALLOCATIONS);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
-  function approve(id: string) {
-    setAllocs((a) => a.map((x) => x.id === id ? { ...x, status: "Approved" } : x));
-    if (detail?.id === id) setDetail((d) => d ? { ...d, status: "Approved" } : d);
+  async function approve(id: string) {
+    setIsUpdating(id);
+    try {
+      // Extract numeric ID from the string ID (e.g., "ALG-001" -> 1)
+      const numId = parseInt(id.split("-")[1]) || 1;
+      await updateAllocationStatus(numId, "approved");
+      setAllocs((a) => a.map((x) => x.id === id ? { ...x, status: "Approved" } : x));
+      if (detail?.id === id) setDetail((d) => d ? { ...d, status: "Approved" } : d);
+    } catch (err) {
+      console.error("Failed to approve:", err);
+    } finally {
+      setIsUpdating(null);
+    }
   }
 
-  function flag(id: string) {
-    setAllocs((a) => a.map((x) => x.id === id ? { ...x, status: "Flagged" } : x));
-    if (detail?.id === id) setDetail((d) => d ? { ...d, status: "Flagged" } : d);
+  async function flag(id: string) {
+    setIsUpdating(id);
+    try {
+      const numId = parseInt(id.split("-")[1]) || 1;
+      await updateAllocationStatus(numId, "flagged");
+      setAllocs((a) => a.map((x) => x.id === id ? { ...x, status: "Flagged" } : x));
+      if (detail?.id === id) setDetail((d) => d ? { ...d, status: "Flagged" } : d);
+    } catch (err) {
+      console.error("Failed to flag:", err);
+    } finally {
+      setIsUpdating(null);
+    }
+  }
+
+  async function handleExport() {
+    try {
+      const blob = await downloadWorkloadSummary();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "workload-summary.csv";
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed:", err);
+    }
   }
 
   const filtered = allocs.filter((a) => {
@@ -99,7 +134,9 @@ export default function AllocationReview() {
             </button>
           ))}
         </div>
-        <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-white text-[12px] font-medium hover:bg-muted transition-colors ml-auto">
+        <button 
+          onClick={handleExport}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-white text-[12px] font-medium hover:bg-muted transition-colors ml-auto">
           <Download size={13} /> Export
         </button>
       </div>
@@ -141,14 +178,20 @@ export default function AllocationReview() {
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-1">
                     {a.status !== "Approved" && (
-                      <button onClick={() => approve(a.id)} title="Approve"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-green-50 transition-colors">
+                      <button 
+                        onClick={() => approve(a.id)} 
+                        disabled={isUpdating === a.id}
+                        title="Approve"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-green-50 transition-colors disabled:opacity-50">
                         <Check size={14} style={{ color: C.green }} />
                       </button>
                     )}
                     {a.status !== "Flagged" && (
-                      <button onClick={() => flag(a.id)} title="Flag"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors">
+                      <button 
+                        onClick={() => flag(a.id)}
+                        disabled={isUpdating === a.id}
+                        title="Flag"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 transition-colors disabled:opacity-50">
                         <X size={14} style={{ color: C.red }} />
                       </button>
                     )}

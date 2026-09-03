@@ -1,61 +1,100 @@
-from csv import DictWriter
-from io import StringIO
+"""Reports and export endpoints."""
+from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+import csv
+import io
 
-from fastapi import APIRouter, Response
-
-from backend_api.api.runtime_state import get_latest_workload_run, get_workload_run_history, summarize_runs
+from backend_api.core.database import get_db
+from backend_api.models import Allocation, Faculty
+from backend_api.schemas import WorkloadSummaryRow
 
 router = APIRouter()
 
 
-@router.get("/workload-summary")
-def workload_summary() -> dict[str, object]:
-    runs = get_workload_run_history()
-    return {
-        "summary": summarize_runs(runs),
-        "latest_run": get_latest_workload_run(),
-        "recent_runs": runs[:5],
-    }
-
-
 @router.get("/workload-summary.csv")
-def workload_summary_csv() -> Response:
-    runs = get_workload_run_history()
-    buffer = StringIO()
-    writer = DictWriter(
-        buffer,
-        fieldnames=[
-            "timestamp",
-            "policy_profile",
-            "score",
-            "fitness",
-            "conflicts",
-            "utilization_rate",
-            "assigned_sections",
-            "total_sections",
-            "faculty_count",
-            "recommendation_count",
-        ],
-    )
-    writer.writeheader()
-    for run in runs:
-        writer.writerow(
-            {
-                "timestamp": run.get("timestamp", ""),
-                "policy_profile": (run.get("policy_profile") or {}).get("name", ""),
-                "score": run.get("score", 0),
-                "fitness": run.get("fitness", 0),
-                "conflicts": run.get("conflicts", 0),
-                "utilization_rate": run.get("utilization_rate", 0),
-                "assigned_sections": run.get("assigned_sections", 0),
-                "total_sections": run.get("total_sections", 0),
-                "faculty_count": run.get("faculty_count", 0),
-                "recommendation_count": run.get("recommendation_count", 0),
-            }
-        )
-
-    return Response(
-        content=buffer.getvalue(),
+def export_workload_summary(db: Session = Depends(get_db)):
+    """Export workload summary as CSV."""
+    allocations = db.query(Allocation).all()
+    faculty_list = db.query(Faculty).all()
+    
+    # Calculate workload per faculty
+    workload_data = {}
+    for fac in faculty_list:
+        workload_data[fac.id] = {
+            "faculty_name": fac.full_name,
+            "employment_type": fac.employment_type,
+            "assigned_units": 0,
+            "max_units": fac.max_units,
+            "num_sections": 0,
+            "match_qualities": []
+        }
+    
+    for alloc in allocations:
+        fac_id = alloc.faculty_id
+        if fac_id in workload_data:
+            workload_data[fac_id]["assigned_units"] += alloc.section.subject.units
+            workload_data[fac_id]["num_sections"] += 1
+            workload_data[fac_id]["match_qualities"].append(alloc.match_quality)
+    
+    # Generate CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Faculty Name", "Employment Type", "Assigned Units", "Max Units",
+        "Utilization %", "Sections", "Avg Match Quality", "Conflicts"
+    ])
+    
+    for fac_id, data in workload_data.items():
+        util_pct = (data["assigned_units"] / data["max_units"] * 100) if data["max_units"] > 0 else 0
+        avg_match = sum(data["match_qualities"]) / len(data["match_qualities"]) if data["match_qualities"] else 0
+        conflicts = sum(1 for a in allocations if a.faculty_id == fac_id and a.conflict_score > 0)
+        
+        writer.writerow([
+            data["faculty_name"],
+            data["employment_type"],
+            data["assigned_units"],
+            data["max_units"],
+            f"{util_pct:.1f}%",
+            data["num_sections"],
+            f"{avg_match:.2f}",
+            conflicts
+        ])
+    
+    return FileResponse(
+        path=None,
+        filename="workload_summary.csv",
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="workload-summary.csv"'},
+        content=output.getvalue()
     )
+
+
+@router.get("/workload-summary")
+def get_workload_summary(db: Session = Depends(get_db)):
+    """Get workload summary as JSON."""
+    allocations = db.query(Allocation).all()
+    faculty_list = db.query(Faculty).all()
+    
+    summary = []
+    
+    for fac in faculty_list:
+        fac_allocs = [a for a in allocations if a.faculty_id == fac.id]
+        assigned_units = sum(a.section.subject.units for a in fac_allocs)
+        util_pct = (assigned_units / fac.max_units * 100) if fac.max_units > 0 else 0
+        avg_match = (sum(a.match_quality for a in fac_allocs) / len(fac_allocs)
+                    if fac_allocs else 0)
+        conflicts = sum(1 for a in fac_allocs if a.conflict_score > 0)
+        
+        summary.append(WorkloadSummaryRow(
+            faculty_name=fac.full_name,
+            employment_type=fac.employment_type,
+            assigned_units=assigned_units,
+            max_units=fac.max_units,
+            utilization_percent=util_pct,
+            num_sections=len(fac_allocs),
+            avg_match_quality=avg_match,
+            conflicts=conflicts
+        ))
+    
+    return summary

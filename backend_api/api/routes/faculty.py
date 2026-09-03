@@ -1,87 +1,100 @@
-from copy import deepcopy
+"""Faculty management endpoints."""
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-
-from backend_api.api.sample_data import SAMPLE_FACULTY
+from backend_api.core.database import get_db
+from backend_api.models import Faculty, Qualification, Availability
+from backend_api.schemas import FacultyCreate, FacultyResponse, FacultyList
 
 router = APIRouter()
 
-FACULTY_STORE = deepcopy(SAMPLE_FACULTY)
+
+@router.post("/", response_model=FacultyResponse)
+def create_faculty(faculty: FacultyCreate, db: Session = Depends(get_db)):
+    """Create a new faculty member."""
+    db_faculty = Faculty(
+        employee_id=faculty.employee_id,
+        full_name=faculty.full_name,
+        employment_type=faculty.employment_type,
+        tenure_status=faculty.tenure_status,
+        max_units=faculty.max_units,
+        overload_allowed=faculty.overload_allowed,
+        available=faculty.available
+    )
+    
+    # Add qualifications
+    for qual in faculty.qualifications or []:
+        db_qual = Qualification(
+            degree=qual.degree,
+            specialization=qual.specialization,
+            institution=qual.institution,
+            year_awarded=qual.year_awarded,
+            proficiency_level=qual.proficiency_level
+        )
+        db_faculty.qualifications.append(db_qual)
+    
+    # Add availability
+    for avail in faculty.availability or []:
+        db_avail = Availability(
+            day_of_week=avail.day_of_week,
+            start_time=avail.start_time,
+            end_time=avail.end_time,
+            recurring=avail.recurring
+        )
+        db_faculty.availability.append(db_avail)
+    
+    db.add(db_faculty)
+    db.commit()
+    db.refresh(db_faculty)
+    
+    return db_faculty
 
 
-class FacultyUpdate(BaseModel):
-    name: str | None = None
-    department: str | None = None
-    employment_type: str | None = None
-    specializations: list[str] | None = None
-    min_units: float | None = Field(default=None, ge=0)
-    max_units: float | None = Field(default=None, ge=0)
-    current_load: float | None = Field(default=None, ge=0)
-    degrees: list[str] | None = None
-    availability: dict[str, list[str]] | None = None
+@router.get("/", response_model=List[FacultyList])
+def list_faculty(db: Session = Depends(get_db)):
+    """List all faculty members."""
+    faculty = db.query(Faculty).all()
+    return faculty
 
 
-class FacultyCreate(FacultyUpdate):
-    id: str
+@router.get("/{faculty_id}", response_model=FacultyResponse)
+def get_faculty(faculty_id: int, db: Session = Depends(get_db)):
+    """Get faculty details."""
+    faculty = db.query(Faculty).filter(Faculty.id == faculty_id).first()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+    return faculty
 
 
-@router.get("/")
-def list_faculty() -> list[dict[str, object]]:
-    return FACULTY_STORE
+@router.put("/{faculty_id}", response_model=FacultyResponse)
+def update_faculty(faculty_id: int, faculty: FacultyCreate, db: Session = Depends(get_db)):
+    """Update faculty information."""
+    db_faculty = db.query(Faculty).filter(Faculty.id == faculty_id).first()
+    if not db_faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+    
+    db_faculty.full_name = faculty.full_name
+    db_faculty.employment_type = faculty.employment_type
+    db_faculty.tenure_status = faculty.tenure_status
+    db_faculty.max_units = faculty.max_units
+    db_faculty.overload_allowed = faculty.overload_allowed
+    db_faculty.available = faculty.available
+    
+    db.commit()
+    db.refresh(db_faculty)
+    
+    return db_faculty
 
 
-@router.post("/")
-def create_faculty(payload: FacultyCreate) -> dict[str, object]:
-    if any(item["id"] == payload.id for item in FACULTY_STORE):
-        raise HTTPException(status_code=409, detail="Faculty id already exists")
-
-    record: dict[str, object] = {
-        "id": payload.id,
-        "name": payload.name,
-        "employee_code": payload.id,
-        "department": payload.department or "IT",
-        "employment_type": payload.employment_type or "Full-time",
-        "tenure_status": (payload.employment_type or "Full-time") == "Full-time",
-        "specializations": payload.specializations or [],
-        "min_units": payload.min_units if payload.min_units is not None else 0.0,
-        "max_units": payload.max_units if payload.max_units is not None else 18.0,
-        "current_load": payload.current_load if payload.current_load is not None else 0.0,
-        "degrees": payload.degrees or [],
-        "availability": payload.availability or {"Mon": [], "Tue": [], "Wed": [], "Thu": [], "Fri": []},
-    }
-    FACULTY_STORE.append(record)
-    return record
-
-
-@router.patch("/{faculty_id}")
-def update_faculty(faculty_id: str, payload: FacultyUpdate) -> dict[str, object]:
-    for index, item in enumerate(FACULTY_STORE):
-        if item["id"] != faculty_id:
-            continue
-
-        updated = {**item}
-        if payload.name is not None:
-            updated["name"] = payload.name
-        if payload.department is not None:
-            updated["department"] = payload.department
-        if payload.employment_type is not None:
-            updated["employment_type"] = payload.employment_type
-            updated["tenure_status"] = payload.employment_type == "Full-time"
-        if payload.specializations is not None:
-            updated["specializations"] = payload.specializations
-        if payload.min_units is not None:
-            updated["min_units"] = payload.min_units
-        if payload.max_units is not None:
-            updated["max_units"] = payload.max_units
-        if payload.current_load is not None:
-            updated["current_load"] = payload.current_load
-        if payload.degrees is not None:
-            updated["degrees"] = payload.degrees
-        if payload.availability is not None:
-            updated["availability"] = payload.availability
-
-        FACULTY_STORE[index] = updated
-        return updated
-
-    raise HTTPException(status_code=404, detail="Faculty member not found")
+@router.delete("/{faculty_id}")
+def delete_faculty(faculty_id: int, db: Session = Depends(get_db)):
+    """Delete faculty member."""
+    db_faculty = db.query(Faculty).filter(Faculty.id == faculty_id).first()
+    if not db_faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+    
+    db.delete(db_faculty)
+    db.commit()
+    
+    return {"message": "Faculty deleted"}

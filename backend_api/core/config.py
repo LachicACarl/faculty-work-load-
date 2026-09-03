@@ -1,17 +1,41 @@
+"""Application configuration and environment settings."""
+from pydantic_settings import BaseSettings
 from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Faculty Workload Allocation API"
-    database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/faculty_workload"
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173"]
+    """Application settings loaded from environment variables."""
+    
+    # Application
+    APP_NAME: str = "Faculty Workload Allocation System"
+    DEBUG: bool = False
+    
+    # Database
+    DATABASE_URL: str = "sqlite:///./faculty_workload.db"
+    # For production, use PostgreSQL:
+    # DATABASE_URL: str = "postgresql://user:password@localhost/faculty_workload"
+    
+    # Optimization Engine
+    GA_POPULATION_SIZE: int = 50
+    GA_GENERATIONS: int = 100
+    GA_MUTATION_RATE: float = 0.15
+    GA_CROSSOVER_RATE: float = 0.85
+    TABU_TENURE: int = 10
+    TABU_MAX_ITERATIONS: int = 200
+    
+    # Constraints
+    DEFAULT_FT_MAX: int = 21  # Full-time max units
+    DEFAULT_PT_MAX: int = 12  # Part-time max units
+    DEFAULT_OVERLOAD_LIMIT: int = 3
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-
-@lru_cache
+@lru_cache()
 def get_settings() -> Settings:
+    """Return cached settings instance."""
     return Settings()
 
 

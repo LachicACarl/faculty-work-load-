@@ -1,97 +1,208 @@
-from typing import Any, Dict, List
+"""Fitness function and objective scoring for workload allocation."""
+from typing import List, Tuple, Dict
+import math
 
 
-def evaluate_fitness(
-    chromosome: Dict[str, str],
-    sections: List[Dict[str, Any]],
-    faculty_list: List[Dict[str, Any]],
-    weights: Dict[str, float] | None = None,
-) -> Dict[str, Any]:
-    if weights is None:
-        weights = {
-            "spec_match": 10.0,
-            "utilization": 5.0,
-            "conflict": 50.0,
-            "policy_violation": 40.0,
-            "unassigned": 30.0,
+class FitnessEvaluator:
+    """Evaluates fitness of allocation solutions."""
+    
+    def __init__(self, faculty_specs: Dict, sections_data: Dict, policies: Dict):
+        """
+        Initialize fitness evaluator.
+        
+        Args:
+            faculty_specs: Faculty qualifications and constraints
+            sections_data: Section requirements and schedules
+            policies: Workload policies and weights
+        """
+        self.faculty_specs = faculty_specs
+        self.sections_data = sections_data
+        self.policies = policies
+        self.balance_priority = policies.get('balance_priority', 0.7)
+        self.specialization_priority = 1.0 - self.balance_priority
+    
+    def evaluate(self, allocations: List[Tuple[int, int]]) -> float:
+        """
+        Calculate overall fitness score (0.0-1.0).
+        
+        Composite fitness function:
+        F(x) = w_1 * F_specialization(x) + w_2 * F_utilization(x)
+        
+        where:
+        - F_specialization: Quality of specialization matching
+        - F_utilization: Balance of workload distribution
+        
+        Args:
+            allocations: List of (faculty_id, section_id) assignments
+            
+        Returns:
+            Fitness score 0.0-1.0
+        """
+        if not allocations:
+            return 0.0
+        
+        spec_score = self._calculate_specialization_fitness(allocations)
+        util_score = self._calculate_utilization_fitness(allocations)
+        
+        # Weighted combination
+        total_fitness = (self.specialization_priority * spec_score +
+                        self.balance_priority * util_score)
+        
+        return max(0.0, min(1.0, total_fitness))  # Clamp to [0, 1]
+    
+    def _calculate_specialization_fitness(self, allocations: List[Tuple[int, int]]) -> float:
+        """
+        Calculate specialization matching component of fitness.
+        
+        Ranges 0.0-1.0:
+        - 1.0: All faculty have exact specialization match for assigned sections
+        - 0.5: Mix of matches and unmatched
+        - 0.0: No specialization matches
+        
+        Args:
+            allocations: Faculty-section assignments
+            
+        Returns:
+            Specialization fitness component
+        """
+        if not allocations:
+            return 0.0
+        
+        match_scores = []
+        
+        for faculty_id, section_id in allocations:
+            section = self.sections_data.get(section_id, {})
+            required_spec = section.get('required_specialization')
+            
+            if not required_spec:
+                # No specialization requirement = perfect match
+                match_scores.append(1.0)
+                continue
+            
+            faculty = self.faculty_specs.get(faculty_id, {})
+            qualifications = faculty.get('qualifications', [])
+            
+            # Find best matching specialization
+            best_match = 0.0
+            for qual in qualifications:
+                spec = qual.get('specialization', '').lower()
+                required = required_spec.lower()
+                
+                if spec == required:
+                    best_match = qual.get('proficiency_level', 1.0)
+                    break
+                elif spec.startswith(required[:3]):  # Partial match on first 3 chars
+                    best_match = max(best_match, 0.5)
+            
+            match_scores.append(best_match)
+        
+        return sum(match_scores) / len(match_scores) if match_scores else 0.0
+    
+    def _calculate_utilization_fitness(self, allocations: List[Tuple[int, int]]) -> float:
+        """
+        Calculate workload balance component of fitness.
+        
+        Encourages:
+        - Spreading workload across faculty
+        - Achieving target utilization rates
+        - Avoiding underutilization and overload
+        
+        Args:
+            allocations: Faculty-section assignments
+            
+        Returns:
+            Utilization fitness component
+        """
+        if not allocations:
+            return 0.0
+        
+        # Calculate workload per faculty
+        faculty_workload = {}
+        for faculty_id, section_id in allocations:
+            units = self.sections_data[section_id]['units']
+            if faculty_id not in faculty_workload:
+                faculty_workload[faculty_id] = 0
+            faculty_workload[faculty_id] += units
+        
+        # Calculate utilization ratios
+        utilization_scores = []
+        
+        for faculty_id, workload in faculty_workload.items():
+            faculty = self.faculty_specs[faculty_id]
+            max_units = faculty['max_units']
+            target_util = 0.85  # Ideal utilization
+            
+            actual_util = workload / max_units if max_units > 0 else 0.0
+            
+            # Fitness decreases with deviation from target
+            if actual_util <= 1.0:
+                # Under or at capacity
+                deviation = abs(actual_util - target_util)
+                score = 1.0 - (deviation * 1.2)  # Penalize underutilization slightly
+            else:
+                # Over capacity
+                overload_ratio = (actual_util - 1.0) / 0.5  # Normalize to [-0.5, 0]
+                score = 1.0 - (min(1.0, overload_ratio) * 0.8)  # Strong penalty
+            
+            utilization_scores.append(max(0.0, score))
+        
+        # Also factor in balance (variance) across faculty
+        avg_util = sum(faculty_workload.values()) / len(faculty_workload) if faculty_workload else 0
+        variance = sum((u - avg_util) ** 2 for u in faculty_workload.values()) / len(faculty_workload) if faculty_workload else 0
+        
+        # Higher variance = less balanced = lower score
+        variance_penalty = math.sqrt(variance) / max(avg_util, 1.0) if avg_util > 0 else 0.0
+        variance_score = 1.0 - min(1.0, variance_penalty)
+        
+        # Combine utilization and balance
+        util_avg = sum(utilization_scores) / len(utilization_scores) if utilization_scores else 0.0
+        
+        return 0.6 * util_avg + 0.4 * variance_score
+    
+    def get_allocation_details(self, faculty_id: int, section_id: int) -> Dict:
+        """
+        Get detailed metrics for a single allocation.
+        
+        Args:
+            faculty_id: Faculty member ID
+            section_id: Section ID
+            
+        Returns:
+            Dict with match quality, workload, explanation
+        """
+        section = self.sections_data.get(section_id, {})
+        faculty = self.faculty_specs.get(faculty_id, {})
+        
+        # Calculate match quality
+        required_spec = section.get('required_specialization')
+        match_quality = 0.0
+        match_level = "Unmatched"
+        
+        if not required_spec:
+            match_quality = 1.0
+            match_level = "Exact"
+        else:
+            qualifications = faculty.get('qualifications', [])
+            for qual in qualifications:
+                if qual.get('specialization', '').lower() == required_spec.lower():
+                    match_quality = qual.get('proficiency_level', 1.0)
+                    match_level = "Exact"
+                    break
+            
+            if match_quality == 0.0:
+                for qual in qualifications:
+                    if qual.get('specialization', '').lower().startswith(required_spec.lower()[:3]):
+                        match_quality = 0.5
+                        match_level = "Partial"
+                        break
+        
+        # Build explanation
+        explanation = f"Assigned {faculty.get('full_name', 'Faculty')} to {section.get('name', 'Section')} "
+        explanation += f"with {match_quality:.0%} specialization match"
+        
+        return {
+            "match_quality": match_quality,
+            "match_level": match_level,
+            "explanation": explanation,
+            "workload_units": section.get('units', 0)
         }
-
-    faculty_map = {f["id"]: f for f in faculty_list}
-    section_map = {s["id"]: s for s in sections}
-
-    spec_matches = 0
-    conflicts = 0
-    policy_violations = 0
-    unassigned = 0
-
-    faculty_assigned_units: Dict[str, float] = {f["id"]: 0.0 for f in faculty_list}
-    faculty_schedules: Dict[str, List[Dict[str, Any]]] = {f["id"]: [] for f in faculty_list}
-
-    for sec_id, fac_id in chromosome.items():
-        sec = section_map.get(sec_id)
-        if not sec:
-            unassigned += 1
-            continue
-
-        if fac_id is None:
-            unassigned += 1
-            continue
-
-        fac = faculty_map.get(fac_id)
-        if not fac:
-            unassigned += 1
-            continue
-
-        if sec.get("required_specialization") in fac.get("specializations", []):
-            spec_matches += 1
-
-        for existing_sec in faculty_schedules[fac_id]:
-            if (
-                existing_sec.get("day") == sec.get("day")
-                and not (
-                    sec.get("end_time") <= existing_sec.get("start_time")
-                    or sec.get("start_time") >= existing_sec.get("end_time")
-                )
-            ):
-                conflicts += 1
-
-        faculty_schedules[fac_id].append(sec)
-        faculty_assigned_units[fac_id] += float(sec.get("units", 3.0))
-
-    total_capacity = 0.0
-    total_assigned = 0.0
-
-    for fac_id, assigned_units in faculty_assigned_units.items():
-        fac = faculty_map[fac_id]
-        max_units = float(fac.get("max_units", 18.0))
-        min_units = float(fac.get("min_units", 12.0))
-        total_capacity += max_units
-        total_assigned += min_units if assigned_units >= min_units else assigned_units
-
-        if assigned_units > max_units:
-            policy_violations += int(assigned_units - max_units)
-        elif assigned_units < min_units and assigned_units > 0:
-            policy_violations += 1
-
-    utilization_score = (total_assigned / total_capacity) * 100 if total_capacity > 0 else 0
-
-    score = (
-        (spec_matches * weights["spec_match"])
-        + (utilization_score * weights["utilization"])
-        - (conflicts * weights["conflict"])
-        - (policy_violations * weights["policy_violation"])
-        - (unassigned * weights["unassigned"])
-    )
-
-    return {
-        "score": max(score, 0.0),
-        "spec_matches": spec_matches,
-        "schedule_conflicts": conflicts,
-        "policy_violations": policy_violations,
-        "unassigned_subjects": unassigned,
-        "utilization_rate": round(utilization_score, 2),
-    }
-
-
-def score_solution(solution: dict[str, object]) -> float:
-    return float(solution.get("score", 0.0))

@@ -137,7 +137,9 @@ export default function FacultyPage() {
             </button>
           ))}
         </div>
-        <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold text-white ml-auto" style={{ background: C.teal }}>
+        <button 
+          onClick={() => alert("Add Faculty feature coming soon! Use the API endpoint POST /api/faculty/ to create faculty members.")}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold text-white ml-auto" style={{ background: C.teal }}>
           <Plus size={14} /> Add Faculty
         </button>
       </div>

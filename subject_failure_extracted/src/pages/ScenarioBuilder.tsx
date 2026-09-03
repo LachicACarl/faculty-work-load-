@@ -2,6 +2,7 @@ import { useState } from "react";
 import { RefreshCw, Save, FlaskConical, CheckSquare, Square } from "lucide-react";
 import { ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import { C, mono, SectionHeading, Card } from "../app/shared";
+import { runOptimization } from "../services/api";
 
 interface Scenario {
   name: string;
@@ -69,14 +70,32 @@ export default function ScenarioBuilder() {
 
   function simulate() {
     setRunning(true);
-    setTimeout(() => {
-      const fit = Math.min(0.99, 0.72 + (scenario.specializationRequired ? 0.08 : 0) + (scenario.balancePriority / 1000) + Math.random() * 0.06);
-      const conf = Math.max(0, 8 - Math.round(scenario.balancePriority / 20) + (scenario.specializationRequired ? -2 : 1));
-      const match = Math.round(75 + (scenario.specializationRequired ? 12 : 0) + scenario.balancePriority / 10);
-      setScenario((s) => ({ ...s, fitnessScore: +fit.toFixed(2), conflicts: conf, avgMatch: Math.min(99, match) }));
-      setRunning(false);
-      setSimulated(true);
-    }, 1800);
+    runOptimization({
+      specialization_required: scenario.specializationRequired,
+      balance_priority: scenario.balancePriority / 100,
+      ft_max_units: scenario.ftMax,
+      pt_max_units: scenario.ptMax,
+      overload_limit: scenario.overload,
+    })
+      .then((result) => {
+        setScenario((s) => ({
+          ...s,
+          fitnessScore: result.total_fitness,
+          conflicts: result.total_conflicts,
+          avgMatch: Math.round(result.avg_match_quality * 100),
+        }));
+        setSimulated(true);
+      })
+      .catch((err) => {
+        console.error("Simulation failed:", err);
+        // Fallback to mock calculation on error
+        const fit = Math.min(0.99, 0.72 + (scenario.specializationRequired ? 0.08 : 0) + (scenario.balancePriority / 1000) + Math.random() * 0.06);
+        const conf = Math.max(0, 8 - Math.round(scenario.balancePriority / 20) + (scenario.specializationRequired ? -2 : 1));
+        const match = Math.round(75 + (scenario.specializationRequired ? 12 : 0) + scenario.balancePriority / 10);
+        setScenario((s) => ({ ...s, fitnessScore: +fit.toFixed(2), conflicts: conf, avgMatch: Math.min(99, match) }));
+        setSimulated(true);
+      })
+      .finally(() => setRunning(false));
   }
 
   function save() {

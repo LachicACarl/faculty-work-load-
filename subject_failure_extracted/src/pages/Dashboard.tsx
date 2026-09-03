@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Users, BookOpen, AlertTriangle, TrendingUp, CheckCircle2, Clock, Cpu, RefreshCw } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, LineChart, Line,
 } from "recharts";
 import { C, mono, StatCard, SectionHeading, Card } from "../app/shared";
+import { runOptimization, AllocationDetail, OptimizationResponse } from "../services/api";
 
 const utilizationData = [
   { dept: "IT", fullTime: 88, partTime: 62 },
@@ -44,20 +45,41 @@ const TOP_MATCHES = [
 export default function Dashboard() {
   const [running, setRunning] = useState(false);
   const [ran, setRan] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<OptimizationResponse | null>(null);
+  const [lastRunTime, setLastRunTime] = useState<string>("");
 
-  function triggerRun() {
+  async function triggerRun() {
     setRunning(true);
-    setTimeout(() => { setRunning(false); setRan(true); }, 2200);
+    setError(null);
+    try {
+      const response = await runOptimization({
+        specialization_required: true,
+        balance_priority: 0.7,
+      });
+      setResult(response);
+      setRan(true);
+      setLastRunTime(new Date().toLocaleTimeString());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Optimization failed");
+    } finally {
+      setRunning(false);
+    }
   }
 
   return (
     <div className="px-5 py-4 space-y-4">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <p className="text-sm text-red-800">{error}</p>
+        </div>
+      )}
       {/* Stat strip */}
       <div className="grid grid-cols-4 gap-3">
         <StatCard label="Total Faculty" value={42} sub="Full-time & Part-time" color={C.teal} icon={<Users size={18} />} />
         <StatCard label="Sections to Fill" value={87} sub="Current semester" color={C.sky} icon={<BookOpen size={18} />} />
-        <StatCard label="Conflicts Detected" value={running ? "…" : ran ? 2 : 3} sub="Hard constraint violations" color={C.amber} icon={<AlertTriangle size={18} />} />
-        <StatCard label="Avg. Utilization" value={running ? "…" : ran ? "80%" : "78%"} sub="Across all departments" color={C.green} icon={<TrendingUp size={18} />} />
+        <StatCard label="Conflicts Detected" value={running ? "…" : result ? result.total_conflicts : 3} sub="Hard constraint violations" color={C.amber} icon={<AlertTriangle size={18} />} />
+        <StatCard label="Avg. Utilization" value={running ? "…" : result ? `${Math.round(result.avg_match_quality * 100)}%` : "78%"} sub="Across all departments" color={C.green} icon={<TrendingUp size={18} />} />
       </div>
 
       {/* Middle row */}
@@ -117,7 +139,7 @@ export default function Dashboard() {
             </div>
             <div className="text-center">
               <p className="text-[13px] font-semibold" style={{ color: C.slate }}>
-                {running ? "Running optimization…" : ran ? "Last run: Today 09:41 AM" : "Ready to run"}
+                {running ? "Running optimization…" : ran && result ? `Last run: ${lastRunTime}` : "Ready to run"}
               </p>
               <p className="text-[10.5px] text-muted-foreground mt-0.5">
                 {running ? "GA + Tabu Search in progress" : "Modified Hybrid GA + Tabu Search"}
@@ -139,7 +161,11 @@ export default function Dashboard() {
             </button>
           </div>
           <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">
-            {[["5", "Generations"], ["48", "Iterations"], ["0.91", "Best Fitness"]].map(([v, l]) => (
+            {[
+              ["5", "Generations"],
+              [`${result?.metrics?.iterations ?? 48}`, "Iterations"],
+              [`${result ? result.total_fitness.toFixed(2) : "0.91"}`, "Best Fitness"]
+            ].map(([v, l]) => (
               <div key={l} className="text-center">
                 <p className="text-[14px] font-bold" style={{ ...mono, color: C.slate }}>{v}</p>
                 <p className="text-[9px] text-muted-foreground">{l}</p>
