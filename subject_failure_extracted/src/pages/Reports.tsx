@@ -1,182 +1,45 @@
-import { useState } from "react";
-import { FileText, Download, Send, Calendar, BarChart2, TrendingUp, BookOpen } from "lucide-react";
-import { C, mono, SectionHeading } from "../app/shared";
+import { useCallback, useEffect, useState } from "react";
+import { Download, RefreshCw } from "lucide-react";
+import { C, Card, SectionHeading } from "../app/shared";
+import { downloadWorkloadSummary, getWorkloadSummary, type WorkloadSummaryRow } from "../services/api";
 
-const TEMPLATES = [
-  {
-    icon: BarChart2, title: "Monthly Department Risk Summary",
-    desc: "A comprehensive institutional overview of all student risk levels, subject performance, and intervention statistics for the current month.",
-    color: C.navy, lastGenerated: "Jun 30, 2026",
-  },
-  {
-    icon: TrendingUp, title: "Subject-Specific Failure Volatility",
-    desc: "Pinpoints which courses have the highest failure rates and tracks volatility trends across the current semester.",
-    color: C.high, lastGenerated: "Jul 1, 2026",
-  },
-  {
-    icon: BookOpen, title: "Intervention Effectiveness Audit",
-    desc: "Tracks the success rate of Counseling vs. Tutorial sessions, with outcome correlations to student grade improvement.",
-    color: C.low, lastGenerated: "Jul 5, 2026",
-  },
-];
-
-const FORMATS = ["PDF", "XLSX", "CSV"];
+function errorText(error: unknown) { return error instanceof Error ? error.message : "The report request failed."; }
 
 export default function Reports() {
-  const [startDate, setStartDate] = useState("2026-06-01");
-  const [endDate, setEndDate] = useState("2026-06-30");
-  const [format, setFormat] = useState("PDF");
-  const [email, setEmail] = useState("");
-  const [generating, setGenerating] = useState<string | null>(null);
-  const [generated, setGenerated] = useState<string[]>([]);
+  const [rows, setRows] = useState<WorkloadSummaryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  function generate(title: string) {
-    setGenerating(title);
-    setTimeout(() => {
-      setGenerating(null);
-      setGenerated((prev) => [...prev, title]);
-    }, 1200);
+  const load = useCallback(async () => {
+    setLoading(true); setError(null); setNotice(null);
+    try { setRows(await getWorkloadSummary()); }
+    catch (err) { setRows([]); setError(errorText(err)); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function exportCsv() {
+    setExporting(true); setError(null); setNotice(null);
+    try {
+      const { blob, filename } = await downloadWorkloadSummary();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+      setNotice(`Downloaded ${filename}.`);
+    } catch (err) { setError(errorText(err)); }
+    finally { setExporting(false); }
   }
 
   return (
-    <div className="px-5 py-4 space-y-4">
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-
-        {/* Left — Report Templates */}
-        <div className="space-y-3">
-          <SectionHeading>Report Templates</SectionHeading>
-          {TEMPLATES.map(({ icon: Icon, title, desc, color, lastGenerated }) => (
-            <div key={title} className="bg-white rounded-2xl border border-black/7 p-4 shadow-sm">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${color}15` }}>
-                  <Icon size={18} style={{ color }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-[13px] font-bold leading-tight mb-1" style={{ color: C.navy }}>{title}</h3>
-                  <p className="text-[11px] text-muted-foreground leading-snug mb-3">{desc}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground">Last generated: <span style={mono}>{lastGenerated}</span></span>
-                    <button
-                      onClick={() => generate(title)}
-                      disabled={generating === title}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white transition-all disabled:opacity-60"
-                      style={{ background: generating === title ? "#94a3b8" : color }}
-                    >
-                      {generating === title
-                        ? "Generating…"
-                        : generated.includes(title)
-                          ? <><Download size={12} /> Download</>
-                          : <><FileText size={12} /> Generate</>}
-                    </button>
-                  </div>
-                  {generated.includes(title) && (
-                    <div className="mt-2 rounded-lg p-2 text-[10px] font-medium" style={{ background: `${C.low}12`, color: C.low }}>
-                      ✓ Report generated — ready for download
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Right — Configuration Panel */}
-        <div className="bg-white rounded-2xl border border-black/7 p-5 shadow-sm h-fit">
-          <SectionHeading>Report Configuration</SectionHeading>
-          <div className="space-y-4">
-
-            {/* Date range */}
-            <div>
-              <label className="block text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Date Range
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="relative">
-                  <Calendar size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-border text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-                <div className="relative">
-                  <Calendar size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-border text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Format */}
-            <div>
-              <label className="block text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                File Format
-              </label>
-              <div className="flex gap-2">
-                {FORMATS.map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFormat(f)}
-                    className="flex-1 py-2 rounded-xl border text-[12px] font-semibold transition-all"
-                    style={format === f
-                      ? { background: C.navy, color: "#fff", borderColor: C.navy }
-                      : { background: "#fff", color: "#64748b", borderColor: "#e2e8f0" }}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Email distribution */}
-            <div>
-              <label className="block text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Email Distribution List
-              </label>
-              <div className="relative">
-                <Send size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="dean@plm.edu.ph, registrar@plm.edu.ph"
-                  className="w-full pl-8 pr-3 py-2 rounded-xl border border-border text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">Separate multiple addresses with commas</p>
-            </div>
-
-            {/* Schedule */}
-            <div>
-              <label className="block text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Auto-Schedule
-              </label>
-              <select className="w-full px-3 py-2 rounded-xl border border-border text-[12px] focus:outline-none bg-white">
-                <option>Disabled (Manual only)</option>
-                <option>Weekly — every Monday</option>
-                <option>Monthly — 1st of each month</option>
-                <option>End of semester</option>
-              </select>
-            </div>
-
-            <div className="pt-2 space-y-2">
-              <button className="w-full py-2.5 rounded-xl text-[13px] font-bold text-white transition-colors" style={{ background: C.navy }}>
-                Apply Configuration
-              </button>
-              {email && (
-                <button className="w-full py-2 rounded-xl border border-border text-[12px] font-semibold text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
-                  <Send size={13} /> Schedule &amp; Send to {email.split(",").length} recipient{email.split(",").length > 1 ? "s" : ""}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-5 p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><SectionHeading>Workload Reports</SectionHeading><p className="mt-1 text-xs text-muted-foreground">Faculty workload totals and allocation metrics returned by the API.</p></div><div className="flex gap-2"><button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs font-semibold disabled:opacity-50"><RefreshCw size={13} className={loading ? "animate-spin" : ""} />Refresh</button><button onClick={() => void exportCsv()} disabled={loading || exporting || Boolean(error) || rows.length === 0} title={rows.length === 0 ? "No workload rows are available to export." : "Download the backend-generated workload CSV."} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style={{ background: C.teal }}><Download size={13} />{exporting ? "Exporting…" : "Export CSV"}</button></div></div>
+      {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+      {notice && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div>}
+      <Card className="overflow-hidden">
+        {loading ? <p role="status" className="p-8 text-center text-sm text-muted-foreground">Loading report rows…</p> : error && rows.length === 0 ? <p className="p-8 text-center text-sm text-red-700">Workload summary could not be loaded.</p> : rows.length === 0 ? <p className="p-8 text-center text-sm text-muted-foreground">No workload report data is available because there are no faculty records.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>{["Faculty", "Employment", "Assigned units", "Maximum units", "Utilization", "Sections", "Mean match", "Conflicts"].map((heading) => <th key={heading} className="p-3">{heading}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.faculty_name}-${row.employment_type}-${index}`} className="border-t border-border"><td className="p-3 text-xs font-semibold">{row.faculty_name}</td><td className="p-3 text-xs">{row.employment_type}</td><td className="p-3 text-xs">{row.assigned_units}</td><td className="p-3 text-xs">{row.max_units}</td><td className="p-3 text-xs">{row.max_units ? `${row.utilization_percent.toFixed(1)}%` : "—"}</td><td className="p-3 text-xs">{row.num_sections}</td><td className="p-3 text-xs">{row.num_sections ? `${(row.avg_match_quality * 100).toFixed(1)}%` : "—"}</td><td className="p-3 text-xs">{row.conflicts}</td></tr>)}</tbody></table></div>}
+      </Card>
+      <p className="text-xs text-muted-foreground">CSV export includes only fields returned by the workload-summary endpoint. Email scheduling, date filters, PDF, and spreadsheet exports are not provided by the current API.</p>
     </div>
   );
 }
