@@ -1,24 +1,38 @@
+﻿import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "react";
 import { createBrowserRouter } from "react-router";
-import Login from "../pages/Login";
 import Layout from "./Layout";
-import Dashboard from "../pages/Dashboard";
-import FacultyPage from "../pages/Faculty";
-import ScenarioBuilder from "../pages/ScenarioBuilder";
-import AllocationReview from "../pages/AllocationReview";
+
+const Login = lazy(() => import("../pages/Login"));
+const Dashboard = lazy(() => import("../pages/Dashboard"));
+const FacultyPage = lazy(() => import("../pages/Faculty"));
+const ScenarioBuilder = lazy(() => import("../pages/ScenarioBuilder"));
+const AllocationReview = lazy(() => import("../pages/AllocationReview"));
+
+function RouteLoading() {
+  return <div role="status" aria-live="polite">Loading page…</div>;
+}
+
+function withSuspense(Component: LazyExoticComponent<ComponentType>) {
+  return (
+    <Suspense fallback={<RouteLoading />}>
+      <Component />
+    </Suspense>
+  );
+}
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: Login,
+    Component: () => withSuspense(Login),
   },
   {
     path: "/dashboard",
     Component: Layout,
     children: [
-      { index: true, Component: Dashboard },
-      { path: "faculty", Component: FacultyPage },
-      { path: "scenario-builder", Component: ScenarioBuilder },
-      { path: "allocation-review", Component: AllocationReview },
+      { index: true, Component: () => withSuspense(Dashboard) },
+      { path: "faculty", Component: () => withSuspense(FacultyPage) },
+      { path: "scenario-builder", Component: () => withSuspense(ScenarioBuilder) },
+      { path: "allocation-review", Component: () => withSuspense(AllocationReview) },
     ],
   },
 ]);
