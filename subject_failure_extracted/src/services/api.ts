@@ -4,7 +4,7 @@
  */
 
 const configuredApiUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
-const API_BASE_URL = (configuredApiUrl || "http://127.0.0.1:8001").replace(/\\/$/, "");
+const API_BASE_URL = (configuredApiUrl || "http://127.0.0.1:8001").replace(/\/$/, "");
 
 // Types
 export interface OptimizationRequest {
@@ -180,7 +180,7 @@ export async function getWorkloadSummary() {
 }
 
 export async function downloadWorkloadSummary() {
-  const response = await fetch(`${API_BASE_URL}/api/reports/workload-summary.csv`);
+  const response = await fetch(`${API_BASE_URL}/api/reports/workload-summary.csv`, { credentials: "include" });
   if (!response.ok) {
     throw new Error("Failed to download report");
   }
