@@ -144,6 +144,19 @@ class ConstraintRepair:
                         "Section enrollment is outside the subject's approved bounds."
                     ))
 
+        # Reject malformed intervals before evaluating overlap.
+        for section_id, section in self.sections_data.items():
+            try:
+                start_time = self._to_minutes(section.get("schedule_start_time"))
+                end_time = self._to_minutes(section.get("schedule_end_time"))
+                if end_time <= start_time:
+                    raise ValueError("End must follow start")
+            except (TypeError, ValueError):
+                violations.append(ConstraintViolation(
+                    "invalid_schedule", 0, section_id, 1.0,
+                    "Section schedule contains an invalid time interval."
+                ))
+
         # A faculty member cannot be booked for overlapping sections.
         for faculty_id in self.faculty_specs:
             assigned = [
@@ -165,10 +178,7 @@ class ConstraintRepair:
                                     "Faculty member has overlapping section schedules."
                                 ))
                         except (TypeError, ValueError):
-                            violations.append(ConstraintViolation(
-                                "invalid_schedule", faculty_id, second.get("id", 0), 1.0,
-                                "Section schedule contains an invalid time interval."
-                            ))
+                            pass
 
         # Room/time conflicts are independent of faculty assignment.
         for index, (faculty_a, section_a_id) in enumerate(allocations):
@@ -192,10 +202,7 @@ class ConstraintRepair:
                                 f"Room {section_a.get('room')} is booked for overlapping sections."
                             ))
                     except (TypeError, ValueError):
-                        violations.append(ConstraintViolation(
-                            "invalid_schedule", faculty_b, section_b_id, 1.0,
-                            "Section schedule contains an invalid time interval."
-                        ))
+                        pass
 
         self.violations = violations
         return violations
