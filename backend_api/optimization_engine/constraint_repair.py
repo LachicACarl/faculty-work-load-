@@ -244,7 +244,7 @@ class ConstraintRepair:
             return False
         if not self._check_availability(faculty_id, section):
             return False
-        for _, existing_id in repaired:
+        for existing_faculty_id, existing_id in repaired:
             existing = self.sections_data[existing_id]
             if existing.get("schedule_day") == section.get("schedule_day"):
                 try:
@@ -252,7 +252,7 @@ class ConstraintRepair:
                         existing.get("schedule_start_time"), existing.get("schedule_end_time"),
                         section.get("schedule_start_time"), section.get("schedule_end_time")
                     ):
-                        if existing_id in [sid for fid, sid in repaired if fid == faculty_id]:
+                        if existing_faculty_id == faculty_id:
                             return False
                         if section.get("room") and section.get("room") == existing.get("room"):
                             return False
