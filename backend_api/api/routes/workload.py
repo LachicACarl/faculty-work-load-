@@ -258,13 +258,6 @@ def run_optimization(
             db.rollback()
             raise
 
-        # Store run data
-        optimization_runs[run_id] = {
-            "allocations": allocations_response,
-            "timestamp": datetime.utcnow(),
-            "total_fitness": total_fitness
-        }
-        
         avg_match = (sum(a.match_quality for a in allocations_response) / len(allocations_response)
                     if allocations_response else 0.0)
         
