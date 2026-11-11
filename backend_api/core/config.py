@@ -33,9 +33,11 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
 
-    def validate_environment(self) -> None:
-        if self.APP_ENV not in {"development", "test", "production"}:
+    @classmethod
+    def validate_environment(cls, value: str) -> str:
+        if value not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production.")
+        return value
 
 
 @lru_cache()
