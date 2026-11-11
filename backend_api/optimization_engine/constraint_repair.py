@@ -152,6 +152,7 @@ class ConstraintRepair:
                 if end_time <= start_time:
                     raise ValueError("End must follow start")
             except (TypeError, ValueError):
+                invalid_section_ids.add(section_id)
                 violations.append(ConstraintViolation(
                     "invalid_schedule", 0, section_id, 1.0,
                     "Section schedule contains an invalid time interval."
@@ -176,6 +177,8 @@ class ConstraintRepair:
                         if assigned_faculty != faculty_id or section_id not in self.sections_data:
                             continue
                         section = self.sections_data[section_id]
+                        if section_id in invalid_section_ids:
+                            continue
                         try:
                             start = self._to_minutes(section.get("schedule_start_time"))
                             end = self._to_minutes(section.get("schedule_end_time"))
