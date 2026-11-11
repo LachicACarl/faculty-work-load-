@@ -160,12 +160,12 @@ class ConstraintRepair:
         # A faculty member cannot be booked for overlapping sections.
         for faculty_id in self.faculty_specs:
             assigned = [
-                self.sections_data[section_id]
+                (section_id, self.sections_data[section_id])
                 for assigned_faculty, section_id in allocations
                 if assigned_faculty == faculty_id and section_id in self.sections_data
             ]
-            for index, first in enumerate(assigned):
-                for second in assigned[index + 1:]:
+            for index, (first_id, first) in enumerate(assigned):
+                for second_id, second in assigned[index + 1:]:
                     if first.get("schedule_day") == second.get("schedule_day"):
                         try:
                             if self._time_overlap(
@@ -174,7 +174,7 @@ class ConstraintRepair:
                             ):
                                 violations.append(ConstraintViolation(
                                     "faculty_schedule_overlap", faculty_id,
-                                    second.get("id", 0), 1.0,
+                                    second_id, 1.0,
                                     "Faculty member has overlapping section schedules."
                                 ))
                         except (TypeError, ValueError):
