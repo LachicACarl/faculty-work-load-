@@ -80,17 +80,7 @@ def run_optimization(
         sections_list = db.query(Section).filter(Section.assigned == False).all()
         
         if not faculty_list or not sections_list:
-            return OptimizationResponse(
-                run_id=run_id,
-                timestamp=datetime.utcnow(),
-                status="failed",
-                allocations=[],
-                total_fitness=0.0,
-                avg_match_quality=0.0,
-                total_conflicts=0,
-                facultyWithConflicts=[],
-                metrics={"error": "Insufficient faculty or sections"}
-            )
+            raise HTTPException(status_code=422, detail="Optimization requires available faculty and unassigned sections.")
         
         # Prepare data structures for optimization
         faculty_specs = {}
@@ -133,7 +123,12 @@ def run_optimization(
                 "schedule_day": sec.schedule_day,
                 "schedule_start_time": sec.schedule_start_time,
                 "schedule_end_time": sec.schedule_end_time,
-                "enrollment": sec.enrollment
+                "enrollment": sec.enrollment,
+                "min_class_size": subject.min_class_size,
+                "max_class_size": subject.max_class_size,
+                "room": sec.room,
+                "semester": sec.semester,
+                "id": sec.id,
             }
         
         policies_dict = {
@@ -141,7 +136,8 @@ def run_optimization(
             "pt_max_units": pt_max,
             "overload_limit": overload_limit,
             "specialization_required": spec_required,
-            "balance_priority": balance_priority
+            "balance_priority": balance_priority,
+            "consecutive_limit": policy.consecutive_limit,
         }
         
         # Generate eligible pairs without weakening institutional policy.
