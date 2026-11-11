@@ -56,3 +56,17 @@ This repository is a development prototype. The following controls are absent or
 - The committed database and generated dependency/cache artifacts must not be shipped as application source.
 
 A production sign-off requires all release gates above, independent security review, institutional data-owner approval and documented user acceptance. This checklist is not itself an authorization to process institutional data.
+
+
+## Remediation branch notes
+
+- CI workflow: `.github/workflows/ci.yml` runs backend unit tests and the frontend production build on pull requests to `main`.
+- Generated frontend `node_modules` and tracked Python bytecode/cache directories were removed from the remediation branch tree; `.gitignore` now prevents re-adding them.
+- The optimization validator now checks complete coverage, duplicate and unknown references, qualification policy, maximum workload, availability, valid time intervals, faculty and room overlap, enrollment bounds, and consecutive teaching-time caps.
+- The optimization API creates pending proposals only after independent feasibility validation; pending or approved proposals prevent the same section from being selected again. Approval marks the section assigned; flagging releases it for a future run.
+- CSV, dashboard, KPI, and institutional summaries now use approved assignment records rather than mock values or pending proposals.
+- Production startup now fails closed when `APP_ENV=production`; this is a deliberate safety stop, not an implemented authentication solution.
+
+## Still blocking institutional deployment
+
+The production identity provider, server-side role and institution scoping, migration framework, database TLS/least-privilege policy, audit trail, data-owner review of `faculty_workload.db`, tested backups/restores, and deployment/UAT are still not implemented. Do not set `APP_ENV=production` until those controls have been delivered and independently verified. The existing SQLite file is retained unchanged pending documented data-owner disposition.
