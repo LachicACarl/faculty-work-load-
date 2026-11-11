@@ -13,39 +13,44 @@ router = APIRouter()
 
 @router.get("/snapshot", response_model=InstitutionalSnapshot)
 def get_institutional_snapshot(db: Session = Depends(get_db)):
-    """Aggregate current database records without using subject catalog totals as workload."""
-    faculty_list = db.query(Faculty).all()
-    sections_list = db.query(Section).all()
-    subjects_list = db.query(Subject).all()
-    allocations = db.query(Allocation).all()
-
-    full_time = sum(1 for item in faculty_list if item.employment_type == "full-time")
-    part_time = sum(1 for item in faculty_list if item.employment_type == "part-time")
-    avg_match = (
-        sum(item.match_quality for item in allocations) / len(allocations)
-        if allocations else 0.0
+    """Aggregate active institutional records and approved workload only."""
+    faculty_rows = db.query(Faculty).all()
+    section_rows = db.query(Section).all()
+    subject_rows = db.query(Subject).all()
+    approved = (
+        db.query(Allocation)
+        .filter(Allocation.approval_status == "approved")
+        .all()
     )
 
-    assigned_section_ids = {
-        item.section_id for item in allocations if item.approval_status != "flagged"
-    }
-    assigned_units = sum(
-        item.subject.units for item in sections_list if item.id in assigned_section_ids
+    full_time = sum(1 for row in faculty_rows if row.employment_type == "full-time")
+    part_time = sum(1 for row in faculty_rows if row.employment_type == "part-time")
+    average_match = (
+        sum(float(row.match_quality or 0) for row in approved) / len(approved)
+        if approved else 0.0
     )
-    total_section_units = sum(item.subject.units for item in sections_list)
-    utilization = (
-        (assigned_units / total_section_units) * 100
+    approved_section_ids = {row.section_id for row in approved}
+    total_section_units = sum(
+        int(row.subject.units) for row in section_rows if row.subject is not None
+    )
+    approved_units = sum(
+        int(row.section.subject.units)
+        for row in approved
+        if row.section is not None and row.section.subject is not None
+    )
+    average_utilization = (
+        approved_units / total_section_units * 100
         if total_section_units else 0.0
     )
 
     return InstitutionalSnapshot(
-        total_faculty=len(faculty_list),
-        total_sections=len(sections_list),
-        total_subjects=len(subjects_list),
+        total_faculty=len(faculty_rows),
+        total_sections=len(section_rows),
+        total_subjects=len(subject_rows),
         faculty_full_time=full_time,
         faculty_part_time=part_time,
-        avg_specialization_match=avg_match,
+        avg_specialization_match=average_match,
         total_workload_units=total_section_units,
-        avg_utilization=utilization,
+        avg_utilization=average_utilization,
         timestamp=datetime.utcnow(),
     )
