@@ -1,4 +1,5 @@
 """Application configuration and environment settings."""
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -33,11 +34,13 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
 
+    @field_validator("APP_ENV")
     @classmethod
     def validate_environment(cls, value: str) -> str:
-        if value not in {"development", "test", "production"}:
+        normalized = value.strip().lower()
+        if normalized not in {"development", "test", "production"}:
             raise ValueError("APP_ENV must be development, test, or production.")
-        return value
+        return normalized
 
 
 @lru_cache()
