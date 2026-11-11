@@ -69,11 +69,11 @@ def run_optimization(
             raise HTTPException(status_code=404, detail="Policy not found")
         
         # Override policy with request parameters if provided
-        ft_max = request.ft_max_units or policy.ft_max_units
-        pt_max = request.pt_max_units or policy.pt_max_units
-        overload_limit = request.overload_limit or policy.overload_limit
+        ft_max = request.ft_max_units if request.ft_max_units is not None else policy.ft_max_units
+        pt_max = request.pt_max_units if request.pt_max_units is not None else policy.pt_max_units
+        overload_limit = request.overload_limit if request.overload_limit is not None else policy.overload_limit
         spec_required = request.specialization_required if request.specialization_required is not None else policy.specialization_required
-        balance_priority = request.balance_priority or policy.balance_priority
+        balance_priority = request.balance_priority if request.balance_priority is not None else policy.balance_priority
         
         # Fetch data for optimization
         faculty_list = db.query(Faculty).filter(Faculty.available == True).all()
@@ -144,94 +144,111 @@ def run_optimization(
             "balance_priority": balance_priority
         }
         
-        # Generate eligible pairs (feasible allocations)
+        # Generate eligible pairs without weakening institutional policy.
         constraint_repair = ConstraintRepair(faculty_specs, sections_data, policies_dict)
-        eligible_pairs = []
-        
-        for fac_id in faculty_specs:
-            for sec_id in sections_data:
-                # Check if allocation is potentially feasible
-                if constraint_repair._has_specialization(fac_id, sections_data[sec_id].get('required_specialization', '')):
-                    eligible_pairs.append((fac_id, sec_id))
-        
+        eligible_pairs = [
+            (fac_id, sec_id)
+            for fac_id in faculty_specs
+            for sec_id in sections_data
+            if (
+                not spec_required
+                or not sections_data[sec_id].get("required_specialization")
+                or constraint_repair._has_specialization(
+                    fac_id, sections_data[sec_id]["required_specialization"]
+                )
+            )
+        ]
         if not eligible_pairs:
-            # Relax constraint if no eligible pairs
-            eligible_pairs = [(fac, sec) for fac in faculty_specs for sec in sections_data]
-        
-        # Initialize fitness evaluator
+            raise HTTPException(
+                status_code=422,
+                detail="No faculty-section pairs satisfy the active specialization policy."
+            )
+
         fitness_eval = FitnessEvaluator(faculty_specs, sections_data, policies_dict)
-        
-        # Run GA
         ga = GeneticAlgorithm(
             population_size=30,
             generations=50,
             mutation_rate=0.15,
-            crossover_rate=0.85
+            crossover_rate=0.85,
         )
-        
         best_ga = ga.evolve(
-            fitness_func=lambda c: fitness_eval.evaluate(c.allocations),
-            eligible_pairs=eligible_pairs
+            fitness_func=lambda chromosome: fitness_eval.evaluate(chromosome.allocations),
+            eligible_pairs=eligible_pairs,
         )
-        
-        # Repair constraints
+
         repaired = constraint_repair.repair(best_ga.allocations, eligible_pairs)
-        
-        # Tabu Search refinement
         feasibility_check = FeasibilityCheck(constraint_repair)
         ts = TabuSearch(tabu_tenure=10, max_iterations=100)
-        
         best_solution = ts.refine(
             initial_solution=repaired,
-            fitness_func=lambda c: fitness_eval.evaluate(c),
-            eligible_pairs=eligible_pairs
+            fitness_func=fitness_eval.evaluate,
+            eligible_pairs=eligible_pairs,
         )
-        
-        # Validate final solution
+
         if not feasibility_check.is_feasible(best_solution):
-            best_solution = constraint_repair.repair(best_solution, eligible_pairs)
-        
-        # Build response
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "No fully feasible allocation could be generated; no allocations were saved.",
+                    "violations": [
+                        {
+                            "type": violation.type,
+                            "faculty_id": violation.faculty_id,
+                            "section_id": violation.section_id,
+                            "details": violation.details,
+                        }
+                        for violation in constraint_repair.detect_violations(best_solution)
+                    ],
+                },
+            )
+
         allocations_response = []
         total_fitness = fitness_eval.evaluate(best_solution)
-        
+        total_units_by_faculty = {}
+        for faculty_id, section_id in best_solution:
+            total_units_by_faculty[faculty_id] = (
+                total_units_by_faculty.get(faculty_id, 0) + sections_data[section_id]["units"]
+            )
+
         for faculty_id, section_id in best_solution:
             fac = faculty_specs[faculty_id]
             sec = sections_data[section_id]
             details = fitness_eval.get_allocation_details(faculty_id, section_id)
-            
+            max_units = max(int(fac["max_units"]), 1)
+            workload_balance = min(1.0, total_units_by_faculty[faculty_id] / max_units)
             alloc = AllocationDetailResponse(
                 faculty_name=fac["full_name"],
                 faculty_id=faculty_id,
                 section_code=sec["section_code"],
                 subject_name=sec["name"],
                 subject_code=sec["code"],
-                semester=sections_list[0].semester,
+                semester=sec["semester"],
                 units=sec["units"],
                 match_quality=details["match_quality"],
                 match_level=details["match_level"],
-                workload_balance=0.85,
+                workload_balance=workload_balance,
                 conflict_score=0.0,
                 explanation=details["explanation"],
-                approval_status="pending"
+                approval_status="pending",
             )
             allocations_response.append(alloc)
-            
-            # Save to database
-            db_alloc = Allocation(
+            db.add(Allocation(
                 faculty_id=faculty_id,
                 section_id=section_id,
                 optimization_run_id=run_id,
                 match_quality=details["match_quality"],
-                workload_balance=0.85,
+                workload_balance=workload_balance,
                 conflict_score=0.0,
                 explanation=details["explanation"],
-                approval_status="pending"
-            )
-            db.add(db_alloc)
-        
-        db.commit()
-        
+                approval_status="pending",
+            ))
+
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
         # Store run data
         optimization_runs[run_id] = {
             "allocations": allocations_response,
@@ -255,11 +272,17 @@ def run_optimization(
                 "ga_generations": len(ga.fitness_history),
                 "ts_iterations": len(ts.iteration_history),
                 "total_sections": len(sections_list),
-                "assigned_sections": len(allocations_response)
+                "assigned_sections": len(allocations_response),
+                "unassigned_sections": len(sections_list) - len(allocations_response)
             }
         )
     
-    except Exception as e:
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Workload optimization failed. Check the protected server logs.")
         return OptimizationResponse(
             run_id=run_id,
             timestamp=datetime.utcnow(),
