@@ -1,6 +1,7 @@
 """Workload optimization endpoints."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import exists
 from typing import List
 import uuid
 from datetime import datetime
@@ -77,7 +78,16 @@ def run_optimization(
         
         # Fetch data for optimization
         faculty_list = db.query(Faculty).filter(Faculty.available == True).all()
-        sections_list = db.query(Section).filter(Section.assigned == False).all()
+        active_allocation = exists().where(
+            Allocation.section_id == Section.id,
+            Allocation.approval_status.in_(["pending", "approved"]),
+        )
+        sections_list = (
+            db.query(Section)
+            .filter(Section.assigned.is_(False), ~active_allocation)
+            .order_by(Section.id.asc())
+            .all()
+        )
         
         if not faculty_list or not sections_list:
             raise HTTPException(status_code=422, detail="Optimization requires available faculty and unassigned sections.")
@@ -335,6 +345,10 @@ def update_allocation_status(
         raise HTTPException(status_code=400, detail="Invalid status")
     
     allocation.approval_status = status
+    if status == "approved":
+        allocation.section.assigned = True
+    elif status == "flagged":
+        allocation.section.assigned = False
     db.commit()
     
     return {
