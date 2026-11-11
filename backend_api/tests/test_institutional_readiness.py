@@ -56,8 +56,9 @@ class FeasibilityRegressionTests(unittest.TestCase):
         self.assertFalse(self.validator.is_feasible([(2, 101), (2, 102)]))
 
     def test_rejects_faculty_schedule_overlap(self):
+        self.engine.sections_data[102]["required_specialization"] = "Computer Science"
         self.engine.sections_data[102]["schedule_start_time"] = "09:30"
-        self.assertFalse(self.validator.is_feasible([(1, 101), (2, 102)]))
+        self.assertFalse(self.validator.is_feasible([(1, 101), (1, 102)]))
 
     def test_rejects_room_time_collision(self):
         self.engine.sections_data[102]["schedule_start_time"] = "09:30"
