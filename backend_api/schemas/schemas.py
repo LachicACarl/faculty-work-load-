@@ -32,7 +32,7 @@ class AvailabilityBase(BaseModel):
     @field_validator("start_time", "end_time")
     @classmethod
     def validate_clock_time(cls, value: str) -> str:
-        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", value):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
             raise ValueError("Time must use valid 24-hour HH:MM format.")
         return value
 
@@ -120,7 +120,7 @@ class SectionBase(BaseModel):
     @field_validator("schedule_start_time", "schedule_end_time")
     @classmethod
     def validate_schedule_time(cls, value: str) -> str:
-        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", value):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
             raise ValueError("Time must use valid 24-hour HH:MM format.")
         return value
 
