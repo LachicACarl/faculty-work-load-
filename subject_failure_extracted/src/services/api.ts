@@ -118,9 +118,8 @@ export async function updateAllocationStatus(
   allocationId: number,
   status: "pending" | "approved" | "flagged"
 ) {
-  return apiCall(`/api/workload/allocations/${allocationId}/status`, {
+  return apiCall(`/api/workload/allocations/${allocationId}/status?status=${encodeURIComponent(status)}`, {
     method: "PUT",
-    body: JSON.stringify({ status }),
   });
 }
 
