@@ -86,5 +86,34 @@ class TabuSearchRegressionTests(unittest.TestCase):
         self.assertEqual(set(result), {(1, 101), (2, 102)})
 
 
+
+class SchemaRegressionTests(unittest.TestCase):
+    def test_rejects_invalid_clock_time(self):
+        from pydantic import ValidationError
+        from backend_api.schemas import AvailabilityBase, SectionBase
+        with self.assertRaises(ValidationError):
+            AvailabilityBase(day_of_week=0, start_time="25:00", end_time="26:00")
+        with self.assertRaises(ValidationError):
+            SectionBase(
+                subject_id=1,
+                section_code="X-1",
+                semester="2026-1",
+                schedule_day=0,
+                schedule_start_time="08:00",
+                schedule_end_time="25:00",
+            )
+
+    def test_rejects_invalid_class_size_bounds(self):
+        from pydantic import ValidationError
+        from backend_api.schemas import SubjectBase
+        with self.assertRaises(ValidationError):
+            SubjectBase(
+                code="BAD-1",
+                name="Invalid bounds",
+                units=3,
+                min_class_size=30,
+                max_class_size=10,
+            )
+
 if __name__ == "__main__":
     unittest.main()
