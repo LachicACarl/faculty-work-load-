@@ -157,6 +157,61 @@ class ConstraintRepair:
                     "Section schedule contains an invalid time interval."
                 ))
 
+        # Consecutive teaching time must not exceed the approved policy cap.
+        consecutive_limit = self.policies.get("consecutive_limit")
+        if consecutive_limit is not None:
+            try:
+                maximum_consecutive_minutes = int(consecutive_limit) * 60
+            except (TypeError, ValueError):
+                maximum_consecutive_minutes = -1
+            if maximum_consecutive_minutes < 0:
+                violations.append(ConstraintViolation(
+                    "invalid_consecutive_limit", 0, 0, 1.0,
+                    "Policy consecutive-section limit is invalid."
+                ))
+            else:
+                for faculty_id in self.faculty_specs:
+                    by_day = {}
+                    for assigned_faculty, section_id in allocations:
+                        if assigned_faculty != faculty_id or section_id not in self.sections_data:
+                            continue
+                        section = self.sections_data[section_id]
+                        try:
+                            start = self._to_minutes(section.get("schedule_start_time"))
+                            end = self._to_minutes(section.get("schedule_end_time"))
+                        except (TypeError, ValueError):
+                            continue
+                        by_day.setdefault(section.get("schedule_day"), []).append(
+                            (start, end, section_id)
+                        )
+                    for day, blocks in by_day.items():
+                        blocks.sort()
+                        run_start = None
+                        run_end = None
+                        run_section = 0
+                        for start, end, section_id in blocks:
+                            if run_end is not None and start == run_end:
+                                run_end = end
+                                run_section = section_id
+                            else:
+                                if (
+                                    run_start is not None
+                                    and run_end - run_start > maximum_consecutive_minutes
+                                ):
+                                    violations.append(ConstraintViolation(
+                                        "consecutive_limit", faculty_id, run_section, 1.0,
+                                        "Faculty consecutive teaching time exceeds policy limit."
+                                    ))
+                                run_start, run_end, run_section = start, end, section_id
+                        if (
+                            run_start is not None
+                            and run_end - run_start > maximum_consecutive_minutes
+                        ):
+                            violations.append(ConstraintViolation(
+                                "consecutive_limit", faculty_id, run_section, 1.0,
+                                "Faculty consecutive teaching time exceeds policy limit."
+                            ))
+
         # A faculty member cannot be booked for overlapping sections.
         for faculty_id in self.faculty_specs:
             assigned = [
