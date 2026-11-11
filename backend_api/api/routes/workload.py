@@ -42,6 +42,7 @@ def get_policy_profiles(db: Session = Depends(get_db)):
         )
         db.add(default_policy)
         db.commit()
+        db.refresh(default_policy)
         return [default_policy]
     
     return policies
