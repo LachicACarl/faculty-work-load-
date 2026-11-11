@@ -71,7 +71,8 @@ class FeasibilityRegressionTests(unittest.TestCase):
 
     def test_rejects_consecutive_teaching_time_over_policy_limit(self):
         self.engine.policies["consecutive_limit"] = 1
-        self.assertFalse(self.validator.is_feasible([(1, 101), (2, 102)]))
+        self.engine.sections_data[102]["required_specialization"] = "Computer Science"
+        self.assertFalse(self.validator.is_feasible([(1, 101), (1, 102)]))
 
 
 class TabuSearchRegressionTests(unittest.TestCase):
