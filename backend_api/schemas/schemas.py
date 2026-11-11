@@ -154,11 +154,11 @@ class OptimizationRequest(BaseModel):
     """Request to run the optimization algorithm."""
     policy_id: Optional[int] = None  # Use default policy if not specified
     scenario_weights: Optional[dict] = None  # Custom weights for objectives
-    ft_max_units: Optional[int] = None
-    pt_max_units: Optional[int] = None
-    overload_limit: Optional[int] = None
+    ft_max_units: Optional[int] = Field(default=None, ge=0)
+    pt_max_units: Optional[int] = Field(default=None, ge=0)
+    overload_limit: Optional[int] = Field(default=None, ge=0)
     specialization_required: Optional[bool] = None
-    balance_priority: Optional[float] = None
+    balance_priority: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class AllocationDetailResponse(BaseModel):
