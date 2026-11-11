@@ -1,5 +1,7 @@
 """Pydantic schemas for request/response validation."""
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -27,6 +29,13 @@ class AvailabilityBase(BaseModel):
     end_time: str  # HH:MM
     recurring: bool = True
 
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_clock_time(cls, value: str) -> str:
+        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", value):
+            raise ValueError("Time must use valid 24-hour HH:MM format.")
+        return value
+
 
 class AvailabilityResponse(AvailabilityBase):
     id: int
@@ -47,8 +56,8 @@ class FacultyBase(BaseModel):
 
 
 class FacultyCreate(FacultyBase):
-    qualifications: Optional[List[QualificationBase]] = []
-    availability: Optional[List[AvailabilityBase]] = []
+    qualifications: List[QualificationBase] = Field(default_factory=list)
+    availability: List[AvailabilityBase] = Field(default_factory=list)
 
 
 class FacultyResponse(FacultyBase):
@@ -75,11 +84,19 @@ class FacultyList(BaseModel):
 class SubjectBase(BaseModel):
     code: str
     name: str
-    units: int
+    units: int = Field(gt=0)
     required_specialization: Optional[str] = None
-    min_class_size: int = 1
-    max_class_size: int = 50
+    min_class_size: int = Field(default=1, ge=0)
+    max_class_size: int = Field(default=50, gt=0)
     active: bool = True
+
+    @field_validator("max_class_size")
+    @classmethod
+    def validate_class_size(cls, value: int, info):
+        minimum = info.data.get("min_class_size")
+        if minimum is not None and value < minimum:
+            raise ValueError("max_class_size must be greater than or equal to min_class_size.")
+        return value
 
 
 class SubjectResponse(SubjectBase):
@@ -93,12 +110,19 @@ class SectionBase(BaseModel):
     subject_id: int
     section_code: str
     semester: str
-    schedule_day: int
+    schedule_day: int = Field(ge=0, le=6)
     schedule_start_time: str
     schedule_end_time: str
     room: Optional[str] = None
-    enrollment: int = 0
+    enrollment: int = Field(default=0, ge=0)
     assigned: bool = False
+
+    @field_validator("schedule_start_time", "schedule_end_time")
+    @classmethod
+    def validate_schedule_time(cls, value: str) -> str:
+        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", value):
+            raise ValueError("Time must use valid 24-hour HH:MM format.")
+        return value
 
 
 class SectionResponse(SectionBase):
