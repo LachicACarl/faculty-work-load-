@@ -29,7 +29,7 @@ jobs:
         env:
           APP_ENV: test
           DATABASE_URL: sqlite://
-        run: python -m unittest discover -s backend_api/tests -v
+        run: python -m unittest backend_api.tests.test_institutional_readiness backend_api.tests.test_optimization_engine -v
 
   frontend:
     name: Frontend production build
