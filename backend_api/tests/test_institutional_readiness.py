@@ -69,6 +69,10 @@ class FeasibilityRegressionTests(unittest.TestCase):
         self.engine.sections_data[101]["schedule_start_time"] = "25:00"
         self.assertFalse(self.validator.is_feasible([(1, 101), (2, 102)]))
 
+    def test_rejects_consecutive_teaching_time_over_policy_limit(self):
+        self.engine.policies["consecutive_limit"] = 1
+        self.assertFalse(self.validator.is_feasible([(1, 101), (2, 102)]))
+
 
 class TabuSearchRegressionTests(unittest.TestCase):
     def test_refine_accepts_list_and_callable(self):
