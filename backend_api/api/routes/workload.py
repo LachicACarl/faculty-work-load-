@@ -283,17 +283,6 @@ def run_optimization(
     except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Workload optimization failed. Check the protected server logs.")
-        return OptimizationResponse(
-            run_id=run_id,
-            timestamp=datetime.utcnow(),
-            status="failed",
-            allocations=[],
-            total_fitness=0.0,
-            avg_match_quality=0.0,
-            total_conflicts=0,
-            facultyWithConflicts=[],
-            metrics={"error": str(e)}
-        )
 
 
 @router.get("/allocations", response_model=List[AllocationDetailResponse])
