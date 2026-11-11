@@ -145,12 +145,12 @@ def run_optimization(
         eligible_pairs = [
             (fac_id, sec_id)
             for fac_id in faculty_specs
-            for sec_id in sections_data
+            for sec_id, section in sections_data.items()
             if (
                 not spec_required
-                or not sections_data[sec_id].get("required_specialization")
+                or not section.get("required_specialization")
                 or constraint_repair._has_specialization(
-                    fac_id, sections_data[sec_id]["required_specialization"]
+                    fac_id, section["required_specialization"]
                 )
             )
         ]
@@ -182,18 +182,19 @@ def run_optimization(
         )
 
         if not feasibility_check.is_feasible(best_solution):
+            violations = constraint_repair.detect_violations(best_solution)
             raise HTTPException(
                 status_code=422,
                 detail={
                     "message": "No fully feasible allocation could be generated; no allocations were saved.",
                     "violations": [
                         {
-                            "type": violation.type,
-                            "faculty_id": violation.faculty_id,
-                            "section_id": violation.section_id,
-                            "details": violation.details,
+                            "type": item.type,
+                            "faculty_id": item.faculty_id,
+                            "section_id": item.section_id,
+                            "details": item.details,
                         }
-                        for violation in constraint_repair.detect_violations(best_solution)
+                        for item in violations
                     ],
                 },
             )
@@ -210,34 +211,37 @@ def run_optimization(
             fac = faculty_specs[faculty_id]
             sec = sections_data[section_id]
             details = fitness_eval.get_allocation_details(faculty_id, section_id)
-            max_units = max(int(fac["max_units"]), 1)
-            workload_balance = min(1.0, total_units_by_faculty[faculty_id] / max_units)
-            alloc = AllocationDetailResponse(
-                faculty_name=fac["full_name"],
-                faculty_id=faculty_id,
-                section_code=sec["section_code"],
-                subject_name=sec["name"],
-                subject_code=sec["code"],
-                semester=sec["semester"],
-                units=sec["units"],
-                match_quality=details["match_quality"],
-                match_level=details["match_level"],
-                workload_balance=workload_balance,
-                conflict_score=0.0,
-                explanation=details["explanation"],
-                approval_status="pending",
+            capacity = max(int(fac["max_units"]), 1)
+            workload_balance = min(1.0, total_units_by_faculty[faculty_id] / capacity)
+            allocations_response.append(
+                AllocationDetailResponse(
+                    faculty_name=fac["full_name"],
+                    faculty_id=faculty_id,
+                    section_code=sec["section_code"],
+                    subject_name=sec["name"],
+                    subject_code=sec["code"],
+                    semester=sec["semester"],
+                    units=sec["units"],
+                    match_quality=details["match_quality"],
+                    match_level=details["match_level"],
+                    workload_balance=workload_balance,
+                    conflict_score=0.0,
+                    explanation=details["explanation"],
+                    approval_status="pending",
+                )
             )
-            allocations_response.append(alloc)
-            db.add(Allocation(
-                faculty_id=faculty_id,
-                section_id=section_id,
-                optimization_run_id=run_id,
-                match_quality=details["match_quality"],
-                workload_balance=workload_balance,
-                conflict_score=0.0,
-                explanation=details["explanation"],
-                approval_status="pending",
-            ))
+            db.add(
+                Allocation(
+                    faculty_id=faculty_id,
+                    section_id=section_id,
+                    optimization_run_id=run_id,
+                    match_quality=details["match_quality"],
+                    workload_balance=workload_balance,
+                    conflict_score=0.0,
+                    explanation=details["explanation"],
+                    approval_status="pending",
+                )
+            )
 
         try:
             db.commit()
