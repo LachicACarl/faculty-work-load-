@@ -77,6 +77,7 @@ class ConstraintRepair:
 
     def detect_violations(self, allocations: List[Tuple[int, int]]) -> List[ConstraintViolation]:
         violations: List[ConstraintViolation] = []
+        invalid_section_ids = set()
         seen_sections = set()
         faculty_workload: Dict[int, int] = {}
 
