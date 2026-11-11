@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Faculty Workload Allocation System"
     DEBUG: bool = False
+    APP_ENV: str = "development"
     
     # Database
     DATABASE_URL: str = "sqlite:///./faculty_workload.db"
@@ -31,6 +32,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    def validate_environment(self) -> None:
+        if self.APP_ENV not in {"development", "test", "production"}:
+            raise ValueError("APP_ENV must be development, test, or production.")
 
 
 @lru_cache()
