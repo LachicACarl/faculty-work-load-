@@ -19,8 +19,6 @@ from backend_api.optimization_engine import (
 
 router = APIRouter()
 
-# Storage for optimization runs (in production, use database)
-optimization_runs = {}
 
 
 @router.get("/policy-profiles", response_model=List[WorkloadPolicyResponse])
@@ -58,7 +56,7 @@ def run_optimization(
     
     try:
         # Get policy
-        if request.policy_id:
+        if request.policy_id is not None:
             policy = db.query(WorkloadPolicy).filter(
                 WorkloadPolicy.id == request.policy_id
             ).first()
