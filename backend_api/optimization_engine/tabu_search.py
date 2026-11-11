@@ -2,7 +2,6 @@
 from typing import List, Tuple, Set, Optional
 from dataclasses import dataclass, field
 from collections import defaultdict
-import random
 
 
 @dataclass
@@ -60,7 +59,6 @@ class TabuSearch:
             List of feasible moves
         """
         moves = []
-        allocated = {sec: fac for fac, sec in allocations}
         
         # Reassignment moves: change faculty for existing section
         for faculty_id, section_id in allocations:
@@ -71,18 +69,6 @@ class TabuSearch:
                     faculty_to=alt_faculty,
                     section_id=section_id
                 ))
-        
-        # Exchange moves: swap assignments
-        for i, (fac1, sec1) in enumerate(allocations):
-            for j, (fac2, sec2) in enumerate(allocations):
-                if i < j:  # Avoid duplicates
-                    # Check if both exchanges are valid
-                    if (fac2, sec1) in eligible_pairs and (fac1, sec2) in eligible_pairs:
-                        moves.append(Move(
-                            faculty_from=fac1,
-                            faculty_to=fac2,
-                            section_id=sec1  # Indicates exchange of sec1 and sec2
-                        ))
         
         # Insertion moves: add unassigned sections
         unassigned_sections = set(s for _, s in eligible_pairs) - set(sec for _, sec in allocations)
@@ -96,7 +82,7 @@ class TabuSearch:
                     ))
                     break
         
-        return moves[:min(len(moves), 50)]  # Limit neighborhood size
+        # Preserve deterministic ordering and cap neighborhood size.\n        return moves[:50]
     
     def apply_move(self, allocations: List[Tuple[int, int]], move: Move) -> List[Tuple[int, int]]:
         """
@@ -170,7 +156,7 @@ class TabuSearch:
         Returns:
             Best solution found during search
         """
-        current = initial_solution.copy()
+        current = list(initial_solution)
         current_fitness = fitness_func(current)
         
         self.best_solution = current.copy()
