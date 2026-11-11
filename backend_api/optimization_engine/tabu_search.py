@@ -1,7 +1,6 @@
 """Tabu Search local refinement for workload allocation."""
-from typing import List, Tuple, Set, Optional
-from dataclasses import dataclass, field
-from collections import defaultdict
+from typing import List, Tuple, Optional
+from dataclasses import dataclass
 
 
 @dataclass
@@ -162,6 +161,7 @@ class TabuSearch:
         self.best_solution = current.copy()
         self.best_fitness = current_fitness
         self.tabu_list = []
+        self.iteration_history = []
         
         for iteration in range(self.max_iterations):
             # Generate neighborhood
