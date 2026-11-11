@@ -1,5 +1,4 @@
 """Faculty Workload Allocation System - FastAPI Backend"""
-import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +13,11 @@ from backend_api.api.routes import health, faculty, curriculum, workload, analyt
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    if settings.APP_ENV == "production":
+        raise RuntimeError(
+            "Production startup is blocked: institutional identity and authorization "
+            "integration has not been implemented or approved."
+        )
     init_db()
     print("✓ Database initialized")
     yield
@@ -57,7 +61,7 @@ app.include_router(institutional.router, prefix="/api/institutional", tags=["Ins
 async def global_exception_handler(request, exc):
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"}
+        content={"detail": "Internal server error. Check protected server logs."}
     )
 
 
