@@ -208,63 +208,80 @@ class ConstraintRepair:
         return violations
 
     def repair(self, allocations: List[Tuple[int, int]], eligible_pairs: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-        """Greedily retain feasible eligible assignments; never weaken policy."""
+        """Greedily retain eligible assignments that do not introduce local conflicts."""
         repaired: List[Tuple[int, int]] = []
         assigned_sections = set()
         workload: Dict[int, int] = {}
-        # Stable order makes repair reproducible.
         for faculty_id, section_id in allocations:
             if section_id in assigned_sections or (faculty_id, section_id) not in eligible_pairs:
                 continue
-            faculty = self.faculty_specs.get(faculty_id)
-            section = self.sections_data.get(section_id)
-            if faculty is None or section is None:
-                continue
-            candidate = repaired + [(faculty_id, section_id)]
-            if self.detect_violations(candidate):
-                # Current candidate may also show unassigned-section violations,
-                # so test the constraints local to this candidate directly.
-                if not self._candidate_pair_is_valid(faculty_id, section_id, repaired, workload):
-                    continue
             if not self._candidate_pair_is_valid(faculty_id, section_id, repaired, workload):
                 continue
             repaired.append((faculty_id, section_id))
             assigned_sections.add(section_id)
-            workload[faculty_id] = workload.get(faculty_id, 0) + int(section["units"])
+            workload[faculty_id] = workload.get(faculty_id, 0) + int(
+                self.sections_data[section_id]["units"]
+            )
         self.violations = self.detect_violations(repaired)
         return repaired
 
-    def _candidate_pair_is_valid(self, faculty_id: int, section_id: int, repaired: List[Tuple[int, int]], workload: Dict[int, int]) -> bool:
-        faculty = self.faculty_specs[faculty_id]
-        section = self.sections_data[section_id]
-        if (faculty_id, section_id) not in [
-            (fid, sid)
-            for fid in self.faculty_specs
-            for sid in self.sections_data
-            if not self.policies.get("specialization_required", True)
-            or not self.sections_data[sid].get("required_specialization")
-            or self._has_specialization(fid, self.sections_data[sid].get("required_specialization"))
-        ]:
+    def _candidate_pair_is_valid(
+        self,
+        faculty_id: int,
+        section_id: int,
+        repaired: List[Tuple[int, int]],
+        workload: Dict[int, int],
+    ) -> bool:
+        faculty = self.faculty_specs.get(faculty_id)
+        section = self.sections_data.get(section_id)
+        if faculty is None or section is None:
             return False
-        maximum = int(faculty.get("max_units", 0)) + int(faculty.get("overload_allowed", 0))
-        if workload.get(faculty_id, 0) + int(section["units"]) > maximum:
+
+        required = section.get("required_specialization")
+        if (
+            self.policies.get("specialization_required", True)
+            and required
+            and not self._has_specialization(faculty_id, required)
+        ):
+            return False
+
+        maximum = int(faculty.get("max_units", 0)) + int(
+            faculty.get("overload_allowed", 0)
+        )
+        if maximum < 0 or workload.get(faculty_id, 0) + int(section["units"]) > maximum:
             return False
         if not self._check_availability(faculty_id, section):
             return False
+
+        enrollment = section.get("enrollment")
+        if enrollment is not None:
+            if enrollment < section.get("min_class_size", 0):
+                return False
+            max_size = section.get("max_class_size")
+            if max_size is not None and enrollment > max_size:
+                return False
+
         for existing_faculty_id, existing_id in repaired:
             existing = self.sections_data[existing_id]
-            if existing.get("schedule_day") == section.get("schedule_day"):
-                try:
-                    if self._time_overlap(
-                        existing.get("schedule_start_time"), existing.get("schedule_end_time"),
-                        section.get("schedule_start_time"), section.get("schedule_end_time")
-                    ):
-                        if existing_faculty_id == faculty_id:
-                            return False
-                        if section.get("room") and section.get("room") == existing.get("room"):
-                            return False
-                except (TypeError, ValueError):
-                    return False
+            if existing.get("schedule_day") != section.get("schedule_day"):
+                continue
+            try:
+                overlaps = self._time_overlap(
+                    existing.get("schedule_start_time"),
+                    existing.get("schedule_end_time"),
+                    section.get("schedule_start_time"),
+                    section.get("schedule_end_time"),
+                )
+            except (TypeError, ValueError):
+                return False
+            if overlaps and existing_faculty_id == faculty_id:
+                return False
+            if (
+                overlaps
+                and section.get("room")
+                and section.get("room") == existing.get("room")
+            ):
+                return False
         return True
 
     def is_feasible(self, allocations: List[Tuple[int, int]]) -> bool:
