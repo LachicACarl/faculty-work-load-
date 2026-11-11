@@ -1,6 +1,6 @@
 """Reports and export endpoints."""
 from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import csv
 import io
@@ -62,11 +62,12 @@ def export_workload_summary(db: Session = Depends(get_db)):
             conflicts
         ])
     
-    return FileResponse(
-        path=None,
-        filename="workload_summary.csv",
-        media_type="text/csv",
-        content=output.getvalue()
+    csv_content = output.getvalue()
+    output.close()
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="workload_summary.csv"'},
     )
 
 
