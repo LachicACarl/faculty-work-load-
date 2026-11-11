@@ -1,12 +1,12 @@
 """Workload optimization endpoints."""
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 import uuid
 from datetime import datetime
 
 from backend_api.core.database import get_db
-from backend_api.models import Allocation, Faculty, Section, Subject, WorkloadPolicy
+from backend_api.models import Allocation, Faculty, Section, WorkloadPolicy
 from backend_api.schemas import (
     OptimizationRequest, OptimizationResponse, AllocationDetailResponse,
     WorkloadPolicyResponse
