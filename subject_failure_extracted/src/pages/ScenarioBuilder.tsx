@@ -68,34 +68,34 @@ export default function ScenarioBuilder() {
     setSimulated(false);
   }
 
-  function simulate() {
+  async function simulate() {
     setRunning(true);
-    runOptimization({
-      specialization_required: scenario.specializationRequired,
-      balance_priority: scenario.balancePriority / 100,
-      ft_max_units: scenario.ftMax,
-      pt_max_units: scenario.ptMax,
-      overload_limit: scenario.overload,
-    })
-      .then((result) => {
-        setScenario((s) => ({
-          ...s,
-          fitnessScore: result.total_fitness,
-          conflicts: result.total_conflicts,
-          avgMatch: Math.round(result.avg_match_quality * 100),
-        }));
-        setSimulated(true);
-      })
-      .catch((err) => {
-        console.error("Simulation failed:", err);
-        // Fallback to mock calculation on error
-        const fit = Math.min(0.99, 0.72 + (scenario.specializationRequired ? 0.08 : 0) + (scenario.balancePriority / 1000) + Math.random() * 0.06);
-        const conf = Math.max(0, 8 - Math.round(scenario.balancePriority / 20) + (scenario.specializationRequired ? -2 : 1));
-        const match = Math.round(75 + (scenario.specializationRequired ? 12 : 0) + scenario.balancePriority / 10);
-        setScenario((s) => ({ ...s, fitnessScore: +fit.toFixed(2), conflicts: conf, avgMatch: Math.min(99, match) }));
-        setSimulated(true);
-      })
-      .finally(() => setRunning(false));
+    setSimulated(false);
+    try {
+      const result = await runOptimization({
+        specialization_required: scenario.specializationRequired,
+        balance_priority: scenario.balancePriority / 100,
+        ft_max_units: scenario.ftMax,
+        pt_max_units: scenario.ptMax,
+        overload_limit: scenario.overload,
+      });
+      if (result.status !== "success") {
+        throw new Error("The optimizer did not produce a successful, feasible allocation.");
+      }
+      setScenario((current) => ({
+        ...current,
+        fitnessScore: result.total_fitness,
+        conflicts: result.total_conflicts,
+        avgMatch: Math.round(result.avg_match_quality * 100),
+      }));
+      setSimulated(true);
+    } catch (err) {
+      console.error("Scenario simulation failed:", err);
+      setScenario((current) => current);
+      window.alert(err instanceof Error ? err.message : "Scenario simulation failed. No simulated values were generated.");
+    } finally {
+      setRunning(false);
+    }
   }
 
   function save() {

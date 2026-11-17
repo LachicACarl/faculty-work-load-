@@ -1,9 +1,10 @@
 """Reports and export endpoints."""
-from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
 import csv
 import io
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from backend_api.core.database import get_db
 from backend_api.models import Allocation, Faculty
@@ -12,89 +13,75 @@ from backend_api.schemas import WorkloadSummaryRow
 router = APIRouter()
 
 
+def _build_workload_summary(db: Session):
+    faculty_rows = db.query(Faculty).order_by(Faculty.full_name.asc()).all()
+    allocations = (
+        db.query(Allocation)
+        .filter(Allocation.approval_status == "approved")
+        .all()
+    )
+    by_faculty = {faculty.id: [] for faculty in faculty_rows}
+    for allocation in allocations:
+        if allocation.faculty_id in by_faculty:
+            by_faculty[allocation.faculty_id].append(allocation)
+
+    summary = []
+    for faculty in faculty_rows:
+        faculty_allocations = by_faculty[faculty.id]
+        assigned_units = sum(
+            int(item.section.subject.units)
+            for item in faculty_allocations
+            if item.section is not None and item.section.subject is not None
+        )
+        max_units = int(faculty.max_units or 0)
+        utilization = (assigned_units / max_units * 100) if max_units > 0 else 0.0
+        matches = [float(item.match_quality or 0) for item in faculty_allocations]
+        conflicts = sum(1 for item in faculty_allocations if (item.conflict_score or 0) > 0)
+        summary.append(
+            WorkloadSummaryRow(
+                faculty_name=faculty.full_name,
+                employment_type=faculty.employment_type,
+                assigned_units=assigned_units,
+                max_units=max_units,
+                utilization_percent=utilization,
+                num_sections=len(faculty_allocations),
+                avg_match_quality=sum(matches) / len(matches) if matches else 0.0,
+                conflicts=conflicts,
+            )
+        )
+    return summary
+
+
 @router.get("/workload-summary.csv")
 def export_workload_summary(db: Session = Depends(get_db)):
-    """Export workload summary as CSV."""
-    allocations = db.query(Allocation).all()
-    faculty_list = db.query(Faculty).all()
-    
-    # Calculate workload per faculty
-    workload_data = {}
-    for fac in faculty_list:
-        workload_data[fac.id] = {
-            "faculty_name": fac.full_name,
-            "employment_type": fac.employment_type,
-            "assigned_units": 0,
-            "max_units": fac.max_units,
-            "num_sections": 0,
-            "match_qualities": []
-        }
-    
-    for alloc in allocations:
-        fac_id = alloc.faculty_id
-        if fac_id in workload_data:
-            workload_data[fac_id]["assigned_units"] += alloc.section.subject.units
-            workload_data[fac_id]["num_sections"] += 1
-            workload_data[fac_id]["match_qualities"].append(alloc.match_quality)
-    
-    # Generate CSV content
-    output = io.StringIO()
+    """Export approved allocations only; proposals are not counted as active workload."""
+    output = io.StringIO(newline="")
     writer = csv.writer(output)
-    
     writer.writerow([
-        "Faculty Name", "Employment Type", "Assigned Units", "Max Units",
-        "Utilization %", "Sections", "Avg Match Quality", "Conflicts"
+        "Faculty Name", "Employment Type", "Approved Assigned Units", "Max Units",
+        "Utilization %", "Approved Sections", "Avg Match Quality", "Recorded Conflicts",
     ])
-    
-    for fac_id, data in workload_data.items():
-        util_pct = (data["assigned_units"] / data["max_units"] * 100) if data["max_units"] > 0 else 0
-        avg_match = sum(data["match_qualities"]) / len(data["match_qualities"]) if data["match_qualities"] else 0
-        conflicts = sum(1 for a in allocations if a.faculty_id == fac_id and a.conflict_score > 0)
-        
+    for row in _build_workload_summary(db):
         writer.writerow([
-            data["faculty_name"],
-            data["employment_type"],
-            data["assigned_units"],
-            data["max_units"],
-            f"{util_pct:.1f}%",
-            data["num_sections"],
-            f"{avg_match:.2f}",
-            conflicts
+            row.faculty_name,
+            row.employment_type,
+            row.assigned_units,
+            row.max_units,
+            f"{row.utilization_percent:.1f}%",
+            row.num_sections,
+            f"{row.avg_match_quality:.3f}",
+            row.conflicts,
         ])
-    
-    return FileResponse(
-        path=None,
-        filename="workload_summary.csv",
-        media_type="text/csv",
-        content=output.getvalue()
+    payload = output.getvalue()
+    output.close()
+    return StreamingResponse(
+        iter([payload]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="workload_summary.csv"'},
     )
 
 
 @router.get("/workload-summary")
 def get_workload_summary(db: Session = Depends(get_db)):
-    """Get workload summary as JSON."""
-    allocations = db.query(Allocation).all()
-    faculty_list = db.query(Faculty).all()
-    
-    summary = []
-    
-    for fac in faculty_list:
-        fac_allocs = [a for a in allocations if a.faculty_id == fac.id]
-        assigned_units = sum(a.section.subject.units for a in fac_allocs)
-        util_pct = (assigned_units / fac.max_units * 100) if fac.max_units > 0 else 0
-        avg_match = (sum(a.match_quality for a in fac_allocs) / len(fac_allocs)
-                    if fac_allocs else 0)
-        conflicts = sum(1 for a in fac_allocs if a.conflict_score > 0)
-        
-        summary.append(WorkloadSummaryRow(
-            faculty_name=fac.full_name,
-            employment_type=fac.employment_type,
-            assigned_units=assigned_units,
-            max_units=fac.max_units,
-            utilization_percent=util_pct,
-            num_sections=len(fac_allocs),
-            avg_match_quality=avg_match,
-            conflicts=conflicts
-        ))
-    
-    return summary
+    """Return a summary of approved workload allocations."""
+    return _build_workload_summary(db)

@@ -3,7 +3,8 @@
  * Base URL: http://127.0.0.1:8001
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8001";
+const configuredApiUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+const API_BASE_URL = (configuredApiUrl || "http://127.0.0.1:8001").replace(/\/$/, "");
 
 // Types
 export interface OptimizationRequest {
@@ -72,19 +73,21 @@ async function apiCall<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  const headers = {
-    "Content-Type": "application/json",
-    ...options.headers,
-  };
+  const headers = new Headers(options.headers);
+  if (options.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const response = await fetch(url, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `API error: ${response.statusText}`);
+    const detail = typeof error.detail === "string" ? error.detail : `API error: ${response.status} ${response.statusText}`;
+    throw new Error(detail);
   }
 
   return response.json();
@@ -108,14 +111,14 @@ export async function getPolicyProfiles() {
 }
 
 export async function getAllocations(runId: string) {
-  return apiCall<AllocationDetail[]>(`/api/workload/allocations?run_id=${runId}`);
+  return apiCall<AllocationDetail[]>(`/api/workload/allocations?run_id=${encodeURIComponent(runId)}`);
 }
 
 export async function updateAllocationStatus(
   allocationId: number,
   status: "pending" | "approved" | "flagged"
 ) {
-  return apiCall(`/api/workload/allocations/${allocationId}/status?status=${status}`, {
+  return apiCall(`/api/workload/allocations/${allocationId}/status?status=${encodeURIComponent(status)}`, {
     method: "PUT",
   });
 }
@@ -156,7 +159,7 @@ export async function getSubjects() {
 
 export async function getSections(semester?: string) {
   const url = semester
-    ? `/api/curriculum/sections?semester=${semester}`
+    ? `/api/curriculum/sections?semester=${encodeURIComponent(semester)}`
     : "/api/curriculum/sections";
   return apiCall(url);
 }
@@ -176,7 +179,7 @@ export async function getWorkloadSummary() {
 }
 
 export async function downloadWorkloadSummary() {
-  const response = await fetch(`${API_BASE_URL}/api/reports/workload-summary.csv`);
+  const response = await fetch(`${API_BASE_URL}/api/reports/workload-summary.csv`, { credentials: "include" });
   if (!response.ok) {
     throw new Error("Failed to download report");
   }

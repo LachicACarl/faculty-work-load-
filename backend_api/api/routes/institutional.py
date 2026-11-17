@@ -1,10 +1,11 @@
-"""Institutional data and snapshots."""
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+"""Institutional data and workload snapshots."""
 from datetime import datetime
 
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
 from backend_api.core.database import get_db
-from backend_api.models import Faculty, Section, Subject, Allocation
+from backend_api.models import Allocation, Faculty, Section, Subject
 from backend_api.schemas import InstitutionalSnapshot
 
 router = APIRouter()
@@ -12,30 +13,44 @@ router = APIRouter()
 
 @router.get("/snapshot", response_model=InstitutionalSnapshot)
 def get_institutional_snapshot(db: Session = Depends(get_db)):
-    """Get institutional snapshot with key metrics."""
-    faculty_list = db.query(Faculty).all()
-    sections_list = db.query(Section).all()
-    subjects_list = db.query(Subject).all()
-    allocations = db.query(Allocation).all()
-    
-    ft_count = sum(1 for f in faculty_list if f.employment_type == "full-time")
-    pt_count = sum(1 for f in faculty_list if f.employment_type == "part-time")
-    
-    avg_match = (sum(a.match_quality for a in allocations) / len(allocations)
-                if allocations else 0)
-    
-    total_units = sum(s.units for s in subjects_list)
-    assigned_units = sum(s.subject.units for s in sections_list if s.assigned)
-    avg_util = (assigned_units / total_units * 100) if total_units > 0 else 0
-    
+    """Aggregate active institutional records and approved workload only."""
+    faculty_rows = db.query(Faculty).all()
+    section_rows = db.query(Section).all()
+    subject_rows = db.query(Subject).all()
+    approved = (
+        db.query(Allocation)
+        .filter(Allocation.approval_status == "approved")
+        .all()
+    )
+
+    full_time = sum(1 for row in faculty_rows if row.employment_type == "full-time")
+    part_time = sum(1 for row in faculty_rows if row.employment_type == "part-time")
+    average_match = (
+        sum(float(row.match_quality or 0) for row in approved) / len(approved)
+        if approved else 0.0
+    )
+    approved_section_ids = {row.section_id for row in approved}
+    total_section_units = sum(
+        int(row.subject.units) for row in section_rows if row.subject is not None
+    )
+    approved_units = sum(
+        int(row.section.subject.units)
+        for row in approved
+        if row.section is not None and row.section.subject is not None
+    )
+    average_utilization = (
+        approved_units / total_section_units * 100
+        if total_section_units else 0.0
+    )
+
     return InstitutionalSnapshot(
-        total_faculty=len(faculty_list),
-        total_sections=len(sections_list),
-        total_subjects=len(subjects_list),
-        faculty_full_time=ft_count,
-        faculty_part_time=pt_count,
-        avg_specialization_match=avg_match,
-        total_workload_units=total_units,
-        avg_utilization=avg_util,
-        timestamp=datetime.utcnow()
+        total_faculty=len(faculty_rows),
+        total_sections=len(section_rows),
+        total_subjects=len(subject_rows),
+        faculty_full_time=full_time,
+        faculty_part_time=part_time,
+        avg_specialization_match=average_match,
+        total_workload_units=total_section_units,
+        avg_utilization=average_utilization,
+        timestamp=datetime.utcnow(),
     )
